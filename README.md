@@ -1,8 +1,8 @@
 # YOLACT ONNX converter and its deploy
 # Requirements
-`numpy`
-`opencv-contrib-python`
-`onnxruntime`
+`numpy`\
+`opencv-contrib-python`\
+`onnxruntime`\
 # Run 
 ## OpenCV DNN Runner
 Change the file path before run code.\
