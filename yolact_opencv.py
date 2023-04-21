@@ -1,6 +1,7 @@
 import onnxruntime
 import numpy as np
 import cv2
+import time
 
 COCO_CLASSES = ('background', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
                 'train', 'truck', 'boat', 'traffic light', 'fire hydrant',
@@ -158,19 +159,10 @@ class Yolact():
             1,
         )
         boxes[:, :2] -= boxes[:, 2:] / 2
-        # boxes[:, 2:] += boxes[:, :2]
+        boxes[:, 2:] += boxes[:, :2]
 
-        # crop
-        np.where(boxes[:, 0] < 0, 0, boxes[:, 0])
-        np.where(boxes[:, 1] < 0, 0, boxes[:, 1])
-        np.where(boxes[:, 2] > 1, 1, boxes[:, 2])
-        np.where(boxes[:, 3] > 1, 1, boxes[:, 3])
-
-        # decode to img size
-        boxes[:, 0] *= img_w
-        boxes[:, 1] *= img_h
-        boxes[:, 2] = boxes[:, 2] * img_w + 1
-        boxes[:, 3] = boxes[:, 3] * img_h + 1
+        boxes[:, 0], boxes[:, 2] = self.sanitize_coordinates(boxes[:, 0], boxes[:, 2], img_w)
+        boxes[:, 1], boxes[:, 3] = self.sanitize_coordinates(boxes[:, 1], boxes[:, 3], img_h)
         return boxes
     
     def sanitize_coordinates(self, _x1, _x2, img_size:int):
@@ -223,9 +215,9 @@ class Yolact():
         indices = cv2.dnn.NMSBoxes(boxes.tolist(), conf_scores.tolist(), self.confidence_threshold, self.nms_threshold , top_k=self.keep_top_k)
         for i in indices:
             idx = i
-            left, top, width, height = boxes[idx, :].astype(np.int32).tolist()
+            top, left, bottom, right = boxes[idx, :].astype(np.int32).tolist()
 
-            output_bboxes.append((left, top, width, height))
+            output_bboxes.append((top, left, bottom, right))
 
             output_classid.append(classid[idx])
             output_conf.append(conf_scores[idx])
@@ -237,24 +229,33 @@ class Yolact():
             # Scale masks up to the full image
             mask = cv2.resize(mask.squeeze(), (img_w, img_h), interpolation=cv2.INTER_LINEAR)
             mask = mask > self.mask_threshold
+            mask = self.mask_map_bbox((top, left, bottom, right), mask)
 
             output_masks.append(mask)
         
         return output_bboxes, output_masks, output_conf, output_classid
 
 if __name__ == "__main__":
-    net = Yolact("convert-onnx/models/yolact_resnet50_54_800000.onnx", conf_threshold=0.4, nms_threshold=0.3, top_k=100)
+    net = Yolact("convert-onnx/models/yolact_resnet50_54_800000.onnx", conf_threshold=0.5, nms_threshold=0.4, top_k=100)
     img = cv2.imread("test_img/example_01.jpg")
 
+    t1 = time.time()
     output_bboxes, output_masks, output_conf, output_classid  = net(img)
+    print(f"Inferent time: {time.time()-t1}")
 
-    mask = output_masks[0]
-    classid = output_classid[0]
+    k = 0
+    for bbox, classid, mask in zip(output_bboxes, output_classid, output_masks):
+        img = cv2.rectangle(img, (bbox[0], bbox[1]), (bbox[2], bbox[3]), colors[classid+1], 3)
+        img = cv2.putText(img, f"{COCO_CLASSES[classid+1]}", (bbox[0], bbox[1]-5), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), thickness=2)
+        img[mask] = img[mask] * 0.5 + np.array(colors[classid+1]) * 0.5
 
-    img[mask] = img[mask] * 0.5 + np.array(colors[classid+1]) * 0.5
+        cv2.imwrite(f"mask_results/{k}.jpg", (mask*255).astype(np.uint8))
+        k+=1
+    
     img = img.astype(np.uint8)
 
     cv2.imwrite("result2.jpg", img)
 
+    print(output_classid)
     print(img.shape)
-    print(output_masks[0].shape) 
+    print(output_masks[0].shape)
