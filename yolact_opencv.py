@@ -103,7 +103,7 @@ colors = [
 
 
 class Yolact():
-    def __init__(self, model_path="yolact_base_54_800000.onnx", conf_threshold=0.4, nms_threshold=0.3, top_k=100):
+    def __init__(self, model_path="yolact_base_54_800000.onnx", conf_threshold=0.4, nms_threshold=0.3, mask_threshold=0.5, top_k=100):
         self.target_size = 550
         self.MEANS = np.array([103.94, 116.78, 123.68], dtype=np.float32).reshape(1, 1, 3)
         self.STD = np.array([57.38, 57.12, 58.40], dtype=np.float32).reshape(1, 1, 3)
@@ -118,6 +118,7 @@ class Yolact():
         self.scales = [24, 48, 96, 192, 384]
         self.variances = [0.1, 0.2]
         self.last_img_size = None
+        self.mask_threshold = mask_threshold
 
         self.priors = self.make_priors()
 
@@ -171,7 +172,23 @@ class Yolact():
         boxes[:, 2] = boxes[:, 2] * img_w + 1
         boxes[:, 3] = boxes[:, 3] * img_h + 1
         return boxes
+    
+    def sanitize_coordinates(self, _x1, _x2, img_size:int):
+        _x1 = _x1 * img_size
+        _x2 = _x2 * img_size
+        x1 = np.min([_x1, _x2], axis=0)
+        x2 = np.max([_x1, _x2], axis=0)
+        x1 = np.clip(x1, a_min=0, a_max=img_size)
+        x2 = np.clip(x2, a_min=0, a_max=img_size)
+        return x1, x2
+    
 
+    def mask_map_bbox(self, box, mask):
+        mask_box = np.zeros_like(mask)
+        mask_box[box[1]:box[3], box[0]:box[2]] = 1
+        mask_output = mask & mask_box
+        return mask_output
+    
     def __call__(self, srcimg):
         img_h, img_w = srcimg.shape[:2]
         img = cv2.resize(srcimg, (self.target_size, self.target_size), interpolation=cv2.INTER_LINEAR).astype(np.float32)
@@ -219,7 +236,7 @@ class Yolact():
 
             # Scale masks up to the full image
             mask = cv2.resize(mask.squeeze(), (img_w, img_h), interpolation=cv2.INTER_LINEAR)
-            mask = mask > 0.5
+            mask = mask > self.mask_threshold
 
             output_masks.append(mask)
         
