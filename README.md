@@ -2,7 +2,7 @@
 # Requirements
 `numpy`\
 `opencv-contrib-python`\
-`onnxruntime`\
+`onnxruntime`
 # Run
 ## ONNX Convert
 Change the model file path `trained_model` before run code.\
